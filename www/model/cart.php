@@ -105,17 +105,32 @@ function purchase_carts($db, $carts){
   if(validate_cart_purchase($carts) === false){
     return false;
   }
+
   foreach($carts as $cart){
     if(update_item_stock(
         $db, 
         $cart['item_id'], 
         $cart['stock'] - $cart['amount']
       ) === false){
-      set_error($cart['name'] . 'の購入に失敗しました。');
+      set_error(h($cart['name']) . 'の購入に失敗しました。');
     }
   }
   
+  function insert_history($db,$user_id,){
+    $sql = "
+      INSERT INTO
+        history(
+          user_id,
+          createdate
+        )
+      VALUES(?,?,now())
+    ";
+  
+    return execute_query($db, $sql,array($user_id));
+  }
+
   delete_user_carts($db, $carts[0]['user_id']);
+  
 }
 
 function delete_user_carts($db, $user_id){
@@ -145,10 +160,10 @@ function validate_cart_purchase($carts){
   }
   foreach($carts as $cart){
     if(is_open($cart) === false){
-      set_error($cart['name'] . 'は現在購入できません。');
+      set_error(h($cart['name']) . 'は現在購入できません。');
     }
     if($cart['stock'] - $cart['amount'] < 0){
-      set_error($cart['name'] . 'は在庫が足りません。購入可能数:' . $cart['stock']);
+      set_error(h($cart['name']) . 'は在庫が足りません。購入可能数:' . $cart['stock']);
     }
   }
   if(has_error() === true){
