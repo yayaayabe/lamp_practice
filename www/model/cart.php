@@ -21,9 +21,9 @@ function get_user_carts($db, $user_id){
     ON
       carts.item_id = items.item_id
     WHERE
-      carts.user_id = ?
+      carts.user_id = {$user_id}
   ";
-  return fetch_all_query($db, $sql,array($user_id));
+  return fetch_all_query($db, $sql);
 }
 
 function get_user_cart($db, $user_id, $item_id){
@@ -45,12 +45,12 @@ function get_user_cart($db, $user_id, $item_id){
     ON
       carts.item_id = items.item_id
     WHERE
-      carts.user_id = ?
+      carts.user_id = {$user_id}
     AND
-      items.item_id = ?
+      items.item_id = {$item_id}
   ";
 
-  return fetch_query($db, $sql,array($user_id,$item_id));
+  return fetch_query($db, $sql);
 
 }
 
@@ -70,10 +70,10 @@ function insert_cart($db, $item_id, $user_id, $amount = 1){
         user_id,
         amount
       )
-    VALUES(?,?,?)
+    VALUES({$item_id}, {$user_id}, {$amount})
   ";
 
-  return execute_query($db, $sql,array($item_id,$user_id,$amount));
+  return execute_query($db, $sql);
 }
 
 function update_cart_amount($db, $cart_id, $amount){
@@ -81,12 +81,12 @@ function update_cart_amount($db, $cart_id, $amount){
     UPDATE
       carts
     SET
-      amount = ?
+      amount = {$amount}
     WHERE
-      cart_id = ?
+      cart_id = {$cart_id}
     LIMIT 1
   ";
-  return execute_query($db, $sql,array($amount,$cart_id));
+  return execute_query($db, $sql);
 }
 
 function delete_cart($db, $cart_id){
@@ -94,28 +94,80 @@ function delete_cart($db, $cart_id){
     DELETE FROM
       carts
     WHERE
-      cart_id = ?
+      cart_id = {$cart_id}
     LIMIT 1
   ";
 
-  return execute_query($db, $sql,array($cart_id));
+  return execute_query($db, $sql);
 }
 
 function purchase_carts($db, $carts){
   if(validate_cart_purchase($carts) === false){
     return false;
   }
+  $total = calc_total($carts);
+
+  $db->beginTransaction();
+  
+//トランザクション開始
+  insert_history($db, $carts[0]['user_id'], $total);
+  $order_id = $db->lastInsertId();
   foreach($carts as $cart){
+    insert_details($db, $order_id, $cart['item_id'], $cart['price'], $cart['amount']);
+
     if(update_item_stock(
         $db, 
         $cart['item_id'], 
         $cart['stock'] - $cart['amount']
       ) === false){
-      set_error($cart['name'] . 'の購入に失敗しました。');
+      set_error(h($cart['name'] . 'の購入に失敗しました。'));
     }
   }
-  
   delete_user_carts($db, $carts[0]['user_id']);
+  //トランザクション　コミット、ロールバック
+  if(has_error()){
+    $db->rollback();
+  } else{
+    $db->commit();
+  }
+  
+}
+
+function calc_total($carts){
+    $sum = 0;
+    foreach($carts as $cart){
+      $sum += $cart['price'] * $cart['amount'];
+    }
+    return $sum;
+}
+
+function insert_history($db, $user_id, $total){
+  $sql = "
+    INSERT INTO
+      history(
+        user_id,
+        total,
+        createdate
+      )
+    VALUES(?,?,now())
+  ";
+
+  return execute_query($db, $sql,array($user_id , $total));
+}
+
+function insert_details($db, $order_id, $item_id, $price, $amount){
+  $sql = "
+    INSERT INTO
+      details(
+        order_id,
+        item_id,
+        price,
+        amount
+      )
+    VALUES(?,?,?,?)
+  ";
+
+  return execute_query($db, $sql,array($order_id, $item_id , $price, $amount));
 }
 
 function delete_user_carts($db, $user_id){
@@ -123,10 +175,10 @@ function delete_user_carts($db, $user_id){
     DELETE FROM
       carts
     WHERE
-      user_id = ?
+      user_id = {$user_id}
   ";
 
-  execute_query($db, $sql,array($user_id));
+  execute_query($db, $sql);
 }
 
 
@@ -157,3 +209,35 @@ function validate_cart_purchase($carts){
   return true;
 }
 
+function get_history($db, $user_id = ""){
+  $sql = "
+    SELECT
+      *
+    FROM
+      history
+  ";
+  if($user_id !== ""){
+    $sql = $sql." WHERE user_id = {$user_id} ";
+  }
+  return fetch_all_query($db, $sql);
+}
+
+function get_details($db,$order_id,$user_id = ""){
+  $sql = "
+    SELECT
+      details.*,name
+    FROM
+      details
+    JOIN
+      items on details.item_id = items.item_id
+    WHERE
+      order_id = ?
+  ";
+  if($user_id !== ""){
+    $sql = $sql." and user_id = ?";
+    $params = array($order_id,$user_id);
+  }else{
+    $params = array($order_id);
+  }
+  return fetch_all_query($db, $sql,$params);
+}
