@@ -241,3 +241,21 @@ function get_details($db,$order_id,$user_id = ""){
   }
   return fetch_all_query($db, $sql,$params);
 }
+
+function get_ranking($db){
+  $sql = "
+    SELECT
+      details.item_id,name,details.price,image,sum(amount) as amount
+    FROM
+      details
+    JOIN
+      items on details.item_id = items.item_id
+    WHERE
+      status = 1
+    GROUP by details.item_id,name,details.price,image
+    ORDER by 5 desc
+    LIMIT 3
+  ";
+  
+  return fetch_all_query($db, $sql);
+}
